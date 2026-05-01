@@ -1,0 +1,26 @@
+# speedtest config — every field is optional, command-line flags override these
+# example shown is a real-looking 24h run
+
+# Required: scp source in the form user@ip:/absolute/path
+source: "user@ip:/home/folder-file/2026-04-30-00-00-24_arb_srv6-61min.mp4"
+
+# How long to run. Format: 30s, 5m, 1h, 24h, 1h30m
+duration: "5m"
+
+# SSH port on server B (default 22)
+port: 25
+
+# Optional ssh key file. Leave empty to use ssh-agent / default key.
+ssh_key: ""
+
+# Folder where logs and json results are written. Auto-created.
+logs_dir: "logs"
+
+# Pause between iterations. Use "0s" for back-to-back, or "2s", "500ms", etc.
+interval: "0s"
+
+# Extra args passed to scp (rarely needed)
+scp_args: ""
+
+# Iterations slower than this are counted as "slow" in the summary (MB/s)
+slow_threshold_mbps: 5
