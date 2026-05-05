@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -31,6 +32,7 @@ type SpeedTest struct {
 	AvgSpeedMBps    float64   `json:"averageDownloadSpeedMBps"`
 	AvgSpeedMbps    float64   `json:"averageDownloadSpeedMbps"`
 	Success         bool      `json:"success"`
+	Interrupted     bool      `json:"interrupted,omitempty"`
 	Error           string    `json:"error,omitempty"`
 }
 
@@ -212,11 +214,11 @@ func main() {
 		}
 	}
 
-	stop := false
+	var stop atomic.Bool
 	go func() {
 		s := <-sigCh
-		logger.Printf("got signal %v — finishing current iteration then stopping", s)
-		stop = true
+		logger.Printf("got signal %v — stopping after current iteration", s)
+		stop.Store(true)
 	}()
 
 	tmpDir, err := os.MkdirTemp("", "speedtest-")
@@ -227,7 +229,7 @@ func main() {
 
 	iter := 0
 	for {
-		if stop {
+		if stop.Load() {
 			break
 		}
 		if time.Now().After(deadline) {
@@ -235,7 +237,7 @@ func main() {
 			break
 		}
 		iter++
-		test := runOne(iter, cfg, tmpDir, logger)
+		test := runOne(iter, cfg, tmpDir, logger, &stop)
 
 		mu.Lock()
 		results = append(results, test)
@@ -243,7 +245,7 @@ func main() {
 
 		flushJSON(time.Now())
 
-		if intervalDur > 0 && !stop && time.Now().Before(deadline) {
+		if intervalDur > 0 && !stop.Load() && time.Now().Before(deadline) {
 			time.Sleep(intervalDur)
 		}
 	}
@@ -298,7 +300,7 @@ func mergeConfig(base, over Config) Config {
 
 // ---------- one iteration ----------
 
-func runOne(iter int, cfg Config, tmpDir string, logger *log.Logger) SpeedTest {
+func runOne(iter int, cfg Config, tmpDir string, logger *log.Logger, stop *atomic.Bool) SpeedTest {
 	t := SpeedTest{Iteration: iter, StartTime: time.Now()}
 
 	base := filepath.Base(cfg.Source)
@@ -328,7 +330,7 @@ func runOne(iter int, cfg Config, tmpDir string, logger *log.Logger) SpeedTest {
 		t.EndTime = time.Now()
 		t.DurationSeconds = t.EndTime.Sub(t.StartTime).Seconds()
 		t.Error = fmt.Sprintf("scp start failed: %v", err)
-		logger.Printf("[#%d] FAIL   %s", iter, t.Error)
+		logger.Printf("[#%d] FAIL   %.2fs  %s", iter, t.DurationSeconds, t.Error)
 		return t
 	}
 
@@ -346,8 +348,14 @@ func runOne(iter int, cfg Config, tmpDir string, logger *log.Logger) SpeedTest {
 	t.DurationSeconds = t.EndTime.Sub(t.StartTime).Seconds()
 
 	if err != nil {
-		t.Error = fmt.Sprintf("scp failed: %v — stderr: %s", err, strings.TrimSpace(stderrBuf.String()))
-		logger.Printf("[#%d] FAIL   %s", iter, t.Error)
+		if stop.Load() {
+			t.Interrupted = true
+			t.Error = fmt.Sprintf("manually stopped: %v", err)
+			logger.Printf("[#%d] STOPPED  manually interrupted after %.2fs", iter, t.DurationSeconds)
+		} else {
+			t.Error = fmt.Sprintf("scp failed: %v — stderr: %s", err, strings.TrimSpace(stderrBuf.String()))
+			logger.Printf("[#%d] FAIL   %.2fs  %s", iter, t.DurationSeconds, t.Error)
+		}
 		_ = os.Remove(dest)
 		return t
 	}

@@ -126,8 +126,10 @@ Useful when you mostly use the config but want to test a one-off setting:
 ./speedtest -duration 30m
 ```
 
-Press Ctrl+C to stop early — it finishes the current iteration and writes
-the JSON cleanly.
+Press Ctrl+C to stop early — the running download is interrupted immediately,
+logged as `STOPPED` with how long it ran, and the JSON is written cleanly.
+The interrupted iteration gets `"interrupted": true` in the JSON so you can
+tell it apart from real failures.
 
 ## Output
 
@@ -165,6 +167,17 @@ JSON shape:
       "averageDownloadSpeedMBps": 67.12,
       "averageDownloadSpeedMbps": 562.94,
       "success": true
+    },
+    {
+      "iteration": 2,
+      "startTime": "2026-05-01T13:45:03+04:00",
+      "endTime":   "2026-05-01T13:45:11+04:00",
+      "durationSeconds": 8.21,
+      "fileSizeBytes": 0,
+      "averageDownloadSpeedMBps": 0,
+      "averageDownloadSpeedMbps": 0,
+      "success": false,
+      "interrupted": true
     }
   ]
 }
@@ -184,6 +197,21 @@ JSON shape:
   and Mbps (megabits — what ISPs quote, 8× higher).
 - The downloaded file is deleted after each iteration before the next one
   starts. Files live in `/tmp/speedtest-XXXXX/` which is auto-cleaned at exit.
+
+### What exactly is being measured
+
+Each iteration downloads to a real temp file, so the measured time includes
+both the network transfer and the disk write. This means the reported speed
+reflects the combined throughput of both — if your disk is slower than your
+network, that will show up in the numbers.
+
+| Scenario | Network | Disk | Reported speed |
+|---|---|---|---|
+| Disk slower than network | 100 MB/s | 40 MB/s | ~40 MB/s |
+| Disk faster than network | 40 MB/s | 200 MB/s | ~40 MB/s |
+
+If you want to isolate pure network throughput without disk involvement,
+a tool like `iperf3` operates at the socket level and never touches the disk.
 
 ## Notes / gotchas
 
